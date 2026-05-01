@@ -177,7 +177,7 @@ The default setup uses SQLite with a simplified single-table schema and seed dat
 
 ### PostgreSQL (Development/Staging)
 
-Use the PostgreSQL system prompt: [`prompt-postgres-dev.md`](../ap-worktree/vibe-sdk/prompt-postgres-dev.md)
+Use the PostgreSQL system prompt: [`prompt-postgres-dev.md`](prompts/prompt-postgres-dev.md)
 
 To adapt:
 1. Replace `system-prompt.txt` content with the PostgreSQL prompt
@@ -194,7 +194,7 @@ To adapt:
 
 ### SQL Server (Production)
 
-Use the SQL Server system prompt: [`prompt-sqlserver-prod.md`](../ap-worktree/vibe-sdk/prompt-sqlserver-prod.md)
+Use the SQL Server system prompt: [`prompt-sqlserver-prod.md`](prompts/prompt-sqlserver-prod.md)
 
 To adapt:
 1. Replace `system-prompt.txt` content with the SQL Server prompt
