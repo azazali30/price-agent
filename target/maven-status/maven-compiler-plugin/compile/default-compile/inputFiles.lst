@@ -1,9 +1,0 @@
-/home/alia2/work/price-agent/src/main/java/com/priceagent/PriceAgentApplication.java
-/home/alia2/work/price-agent/src/main/java/com/priceagent/agent/PriceAgent.java
-/home/alia2/work/price-agent/src/main/java/com/priceagent/config/AppConfig.java
-/home/alia2/work/price-agent/src/main/java/com/priceagent/controller/ChatController.java
-/home/alia2/work/price-agent/src/main/java/com/priceagent/db/DatabaseInitializer.java
-/home/alia2/work/price-agent/src/main/java/com/priceagent/db/DatabaseManager.java
-/home/alia2/work/price-agent/src/main/java/com/priceagent/tools/ExecuteSqlTool.java
-/home/alia2/work/price-agent/src/main/java/com/priceagent/tools/GetDimensionValuesTool.java
-/home/alia2/work/price-agent/src/main/java/com/priceagent/tools/SearchProductsTool.java
