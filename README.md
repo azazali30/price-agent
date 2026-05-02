@@ -2,14 +2,14 @@
 
 AI-powered market price monitoring agent for UAE products. Users can browse products, compare prices across stores and emirates, and analyze price trends through a conversational chat interface.
 
-Built with **LangChain4j** (ReAct agent pattern), **Spring Boot**, **SQLite**, and a **React** frontend with SSE streaming.
+Built with **[agentic4j](https://github.com/azazali30/agentic4j)** (ReAct agent pattern), **Spring Boot 2.7**, **SQLite**, and a **React** frontend.
 
 ---
 
 ## Prerequisites
 
-- Java 17+
-- Maven 3.8+
+- Java 8+
+- Maven 3.6+
 - Node.js 18+ and npm
 
 ## Running Locally
@@ -49,7 +49,7 @@ All configuration is in `src/main/resources/application.properties`:
 | Property | Env Variable | Default | Description |
 |----------|-------------|---------|-------------|
 | `server.port` | — | `9090` | Backend HTTP port |
-| `openai.api.key` | `OPENAI_API_KEY` | (hardcoded dev key) | LLM API key |
+| `openai.api.key` | `OPENAI_API_KEY` | — | LLM API key |
 | `openai.model` | `OPENAI_MODEL` | `openai/gpt-4o-mini` | Model identifier |
 | `openai.base.url` | `OPENAI_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-compatible API base URL |
 | `db.path` | `DB_PATH` | `price-agent.db` | SQLite database file path |
@@ -58,9 +58,26 @@ All configuration is in `src/main/resources/application.properties`:
 
 ## Architecture
 
+### Agent Framework: agentic4j
+
+This project uses [agentic4j](https://github.com/azazali30/agentic4j), a lightweight Java 8 compatible AI agent framework. agentic4j provides:
+
+- **Annotation-driven agents** — define agent interfaces with `@SystemPrompt`, register tools with `@AgentTool`
+- **ReAct loop** — automatic tool calling and reasoning via dynamic proxies
+- **Pluggable models** — works with any OpenAI-compatible API (OpenAI, OpenRouter, Azure OpenAI, Ollama)
+- **Sliding window memory** — configurable per-session chat history
+
+```xml
+<dependency>
+    <groupId>io.github.azazali30</groupId>
+    <artifactId>agentic4j-openai</artifactId>
+    <version>0.1.1</version>
+</dependency>
+```
+
 ### Agent Pattern: ReAct (Reasoning + Acting)
 
-The agent uses LangChain4j's `AiServices` with the ReAct pattern. On each user message, the LLM reasons about what data it needs, invokes tools to fetch that data, observes the results, and continues reasoning until it can provide a final answer.
+On each user message, the LLM reasons about what data it needs, invokes tools to fetch that data, observes the results, and continues reasoning until it can provide a final answer.
 
 ```
 User Message
@@ -78,16 +95,42 @@ User Message
 └──────────────────┘
     │
     ▼
-Streamed Response (SSE) → React Frontend
+Response → React Frontend
+```
+
+### How It Works
+
+The agent is defined as a simple Java interface:
+
+```java
+public interface PriceAssistant {
+    @SystemPrompt(fromResource = "system-prompt.txt")
+    String chat(String userMessage);
+}
+```
+
+Tools are plain Java methods annotated with `@AgentTool`:
+
+```java
+@AgentTool("Search for products by name")
+public String searchProducts(@Param("The search term") String term) {
+    // query database and return results
+}
+```
+
+The agent is assembled using `AgentBuilder`:
+
+```java
+PriceAssistant assistant = AgentBuilder.forInterface(PriceAssistant.class)
+    .chatModel(chatModel)
+    .memory(new SlidingWindowMemory(20))
+    .tools(new ExecuteSqlTool(db), new GetDimensionValuesTool(db), new SearchProductsTool(db))
+    .build();
 ```
 
 ### Session Management
 
 Each conversation gets a unique `sessionId`. The agent maintains per-session chat memory (window of last 20 messages) so users can ask follow-up questions with full context.
-
-### Streaming
-
-The backend uses LangChain4j's `TokenStream` API with Spring's `SseEmitter` to deliver tokens in real-time. The frontend consumes the SSE stream and renders markdown incrementally. A non-streaming fallback (`/api/chat`) is used automatically if SSE fails.
 
 ---
 
@@ -162,13 +205,6 @@ searchProducts("milk")
 }
 ```
 
-**SSE event types** (`/api/chat/stream`):
-- `session` — session ID (sent first)
-- `tool` — tool name being executed
-- `token` — streamed text token
-- `done` — complete final response text
-- `error` — error message
-
 ---
 
 ## Adapting for PostgreSQL or SQL Server
@@ -217,11 +253,11 @@ Both prompts include the full production schema (with additional columns, relati
 
 ```
 price-agent/
-├── pom.xml                              # Maven config (Spring Boot 3.3, LangChain4j 0.36.2)
+├── pom.xml                              # Maven config (Spring Boot 2.7, agentic4j 0.1.1)
 ├── src/main/java/com/priceagent/
 │   ├── PriceAgentApplication.java       # Spring Boot entry point
 │   ├── config/AppConfig.java            # Bean configuration (DB, Agent)
-│   ├── controller/ChatController.java   # REST + SSE endpoints
+│   ├── controller/ChatController.java   # REST endpoints
 │   ├── agent/PriceAgent.java            # ReAct agent with session management
 │   ├── db/DatabaseManager.java          # JDBC connection provider
 │   ├── db/DatabaseInitializer.java      # Schema + seed data (dev only)
@@ -237,7 +273,7 @@ price-agent/
 └── frontend/
     ├── package.json                     # React 19, react-markdown, remark-gfm
     ├── vite.config.js                   # Dev server (port 3000, proxy to 9090)
-    ├── src/App.jsx                      # Chat UI with SSE streaming
+    ├── src/App.jsx                      # Chat UI
     ├── src/App.css                      # Styles
     └── index.html                       # Entry HTML
 ```

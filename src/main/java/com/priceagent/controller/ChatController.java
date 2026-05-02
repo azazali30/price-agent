@@ -1,15 +1,19 @@
 package com.priceagent.controller;
 
 import com.priceagent.agent.PriceAgent;
-import dev.langchain4j.service.TokenStream;
+import com.agentic4j.core.ChatResponse;
+import com.agentic4j.core.StreamingResponse;
+import com.agentic4j.core.ToolExecutionResult;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 @RestController
 @RequestMapping("/api")
@@ -24,82 +28,95 @@ public class ChatController {
 
     @PostMapping("/chat")
     public ResponseEntity<Map<String, String>> chat(@RequestBody ChatRequest request) {
-        String sessionId = request.sessionId();
-        if (sessionId == null || sessionId.isBlank()) {
+        String sessionId = request.getSessionId();
+        if (sessionId == null || sessionId.trim().isEmpty()) {
             sessionId = UUID.randomUUID().toString();
         }
 
         try {
-            String response = priceAgent.chat(sessionId, request.message());
-            return ResponseEntity.ok(Map.of(
-                "response", response,
-                "sessionId", sessionId
-            ));
+            String response = priceAgent.chat(sessionId, request.getMessage());
+            Map<String, String> body = new HashMap<String, String>();
+            body.put("response", response);
+            body.put("sessionId", sessionId);
+            return ResponseEntity.ok(body);
         } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of(
-                "response", "Error: " + e.getMessage(),
-                "sessionId", sessionId
-            ));
+            Map<String, String> body = new HashMap<String, String>();
+            body.put("response", "Error: " + e.getMessage());
+            body.put("sessionId", sessionId);
+            return ResponseEntity.status(500).body(body);
         }
     }
 
     @PostMapping("/chat/stream")
     public SseEmitter chatStream(@RequestBody ChatRequest request) {
-        String sessionId = request.sessionId();
-        if (sessionId == null || sessionId.isBlank()) {
+        String sessionId = request.getSessionId();
+        if (sessionId == null || sessionId.trim().isEmpty()) {
             sessionId = UUID.randomUUID().toString();
         }
 
-        SseEmitter emitter = new SseEmitter(120_000L); // 2 min timeout
+        final SseEmitter emitter = new SseEmitter(120_000L);
         final String finalSessionId = sessionId;
 
         try {
-            // Send session ID first
             emitter.send(SseEmitter.event()
                     .name("session")
                     .data(finalSessionId, MediaType.TEXT_PLAIN));
 
-            TokenStream tokenStream = priceAgent.chatStream(finalSessionId, request.message());
+            StreamingResponse streamingResponse = priceAgent.chatStream(finalSessionId, request.getMessage());
 
-            tokenStream
-                    .onToolExecuted(toolExecution -> {
-                        try {
-                            emitter.send(SseEmitter.event()
-                                    .name("tool")
-                                    .data(toolExecution.request().name(), MediaType.TEXT_PLAIN));
-                        } catch (IOException e) {
-                            // ignore
+            streamingResponse
+                    .onToolExecuted(new Consumer<ToolExecutionResult>() {
+                        @Override
+                        public void accept(ToolExecutionResult result) {
+                            try {
+                                emitter.send(SseEmitter.event()
+                                        .name("tool")
+                                        .data(result.getToolName(), MediaType.TEXT_PLAIN));
+                            } catch (IOException e) {
+                                // ignore
+                            }
                         }
                     })
-                    .onNext(token -> {
-                        try {
-                            emitter.send(SseEmitter.event()
-                                    .name("token")
-                                    .data(token, MediaType.TEXT_PLAIN));
-                        } catch (IOException e) {
-                            emitter.completeWithError(e);
+                    .onToken(new Consumer<String>() {
+                        @Override
+                        public void accept(String token) {
+                            try {
+                                emitter.send(SseEmitter.event()
+                                        .name("token")
+                                        .data(token, MediaType.TEXT_PLAIN));
+                            } catch (IOException e) {
+                                emitter.completeWithError(e);
+                            }
                         }
                     })
-                    .onComplete(response -> {
-                        try {
-                            // Send the complete response text so frontend has authoritative final content
-                            String fullText = response.content().text() != null ? response.content().text() : "";
-                            emitter.send(SseEmitter.event()
-                                    .name("done")
-                                    .data(fullText, MediaType.TEXT_PLAIN));
-                            emitter.complete();
-                        } catch (IOException e) {
-                            emitter.completeWithError(e);
+                    .onComplete(new Consumer<ChatResponse>() {
+                        @Override
+                        public void accept(ChatResponse response) {
+                            try {
+                                String fullText = "";
+                                if (response.getMessage() != null && response.getMessage().getContent() != null) {
+                                    fullText = response.getMessage().getContent();
+                                }
+                                emitter.send(SseEmitter.event()
+                                        .name("done")
+                                        .data(fullText, MediaType.TEXT_PLAIN));
+                                emitter.complete();
+                            } catch (IOException e) {
+                                emitter.completeWithError(e);
+                            }
                         }
                     })
-                    .onError(error -> {
-                        try {
-                            emitter.send(SseEmitter.event()
-                                    .name("error")
-                                    .data(error.getMessage() != null ? error.getMessage() : "Unknown error", MediaType.TEXT_PLAIN));
-                            emitter.complete();
-                        } catch (IOException e) {
-                            emitter.completeWithError(e);
+                    .onError(new Consumer<Throwable>() {
+                        @Override
+                        public void accept(Throwable error) {
+                            try {
+                                emitter.send(SseEmitter.event()
+                                        .name("error")
+                                        .data(error.getMessage() != null ? error.getMessage() : "Unknown error", MediaType.TEXT_PLAIN));
+                                emitter.complete();
+                            } catch (IOException e) {
+                                emitter.completeWithError(e);
+                            }
                         }
                     })
                     .start();
@@ -124,8 +141,20 @@ public class ChatController {
         if (sessionId != null) {
             priceAgent.clearSession(sessionId);
         }
-        return ResponseEntity.ok(Map.of("status", "ok"));
+        Map<String, String> body = new HashMap<String, String>();
+        body.put("status", "ok");
+        return ResponseEntity.ok(body);
     }
 
-    public record ChatRequest(String message, String sessionId) {}
+    public static class ChatRequest {
+        private String message;
+        private String sessionId;
+
+        public ChatRequest() {}
+
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+        public String getSessionId() { return sessionId; }
+        public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+    }
 }

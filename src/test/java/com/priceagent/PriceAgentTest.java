@@ -20,7 +20,6 @@ public class PriceAgentTest {
 
     @BeforeAll
     static void setup() throws SQLException {
-        // Clean up any previous test DB
         new File(TEST_DB).delete();
 
         dbManager = new DatabaseManager("jdbc:sqlite:" + TEST_DB);
@@ -41,7 +40,6 @@ public class PriceAgentTest {
         assertNotNull(result);
         assertFalse(result.contains("ERROR"));
         assertTrue(result.contains("total"));
-        // Should have records (42 products × 5 stores × 7 emirates × 3 dates = 4410)
         System.out.println("Record count query result:\n" + result);
     }
 
@@ -59,7 +57,6 @@ public class PriceAgentTest {
         result = sqlTool.executeSql("INSERT INTO mkt_priceflat VALUES (1,2,3)");
         assertTrue(result.contains("ERROR"), "INSERT should be blocked: " + result);
 
-        // Ensure SELECT with column names containing keywords still works
         result = sqlTool.executeSql("SELECT createddate FROM mkt_priceflat LIMIT 1");
         assertFalse(result.contains("ERROR"), "SELECT with createddate should work: " + result);
     }
@@ -114,13 +111,13 @@ public class PriceAgentTest {
     void testPriceComparison() {
         ExecuteSqlTool sqlTool = new ExecuteSqlTool(dbManager);
 
-        String result = sqlTool.executeSql("""
-            SELECT storenameen, MIN(standardprice) as min_price, MAX(standardprice) as max_price
-            FROM mkt_priceflat
-            WHERE productid = 1
-            GROUP BY storenameen
-            ORDER BY min_price ASC
-        """);
+        String result = sqlTool.executeSql(
+            "SELECT storenameen, MIN(standardprice) as min_price, MAX(standardprice) as max_price "
+            + "FROM mkt_priceflat "
+            + "WHERE productid = 1 "
+            + "GROUP BY storenameen "
+            + "ORDER BY min_price ASC"
+        );
         assertFalse(result.contains("ERROR"));
         assertTrue(result.contains("Carrefour") || result.contains("Lulu"));
         System.out.println("Price comparison result:\n" + result);
@@ -131,11 +128,11 @@ public class PriceAgentTest {
     void testDateFiltering() {
         ExecuteSqlTool sqlTool = new ExecuteSqlTool(dbManager);
 
-        String result = sqlTool.executeSql("""
-            SELECT DISTINCT createddate FROM mkt_priceflat
-            WHERE createddate IS NOT NULL
-            ORDER BY createddate
-        """);
+        String result = sqlTool.executeSql(
+            "SELECT DISTINCT createddate FROM mkt_priceflat "
+            + "WHERE createddate IS NOT NULL "
+            + "ORDER BY createddate"
+        );
         assertFalse(result.contains("ERROR"));
         assertTrue(result.contains("2025-01"));
         System.out.println("Dates in DB:\n" + result);

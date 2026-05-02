@@ -4,12 +4,12 @@ import com.priceagent.db.DatabaseManager;
 import com.priceagent.tools.ExecuteSqlTool;
 import com.priceagent.tools.GetDimensionValuesTool;
 import com.priceagent.tools.SearchProductsTool;
-import dev.langchain4j.memory.chat.MessageWindowChatMemory;
-import dev.langchain4j.model.openai.OpenAiChatModel;
-import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
-import dev.langchain4j.service.AiServices;
-import dev.langchain4j.service.SystemMessage;
-import dev.langchain4j.service.TokenStream;
+import com.agentic4j.core.StreamingResponse;
+import com.agentic4j.core.agent.AgentBuilder;
+import com.agentic4j.core.annotation.SystemPrompt;
+import com.agentic4j.core.memory.SlidingWindowMemory;
+import com.agentic4j.openai.OpenAiChatModel;
+import com.agentic4j.openai.OpenAiStreamingChatModel;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -20,17 +20,17 @@ public class PriceAgent {
     private final String model;
     private final String baseUrl;
     private final DatabaseManager dbManager;
-    private final Map<String, PriceAssistant> sessions = new ConcurrentHashMap<>();
-    private final Map<String, StreamingPriceAssistant> streamingSessions = new ConcurrentHashMap<>();
+    private final Map<String, PriceAssistant> sessions = new ConcurrentHashMap<String, PriceAssistant>();
+    private final Map<String, StreamingPriceAssistant> streamingSessions = new ConcurrentHashMap<String, StreamingPriceAssistant>();
 
     public interface PriceAssistant {
-        @SystemMessage(fromResource = "system-prompt.txt")
+        @SystemPrompt(fromResource = "system-prompt.txt")
         String chat(String userMessage);
     }
 
     public interface StreamingPriceAssistant {
-        @SystemMessage(fromResource = "system-prompt.txt")
-        TokenStream chat(String userMessage);
+        @SystemPrompt(fromResource = "system-prompt.txt")
+        StreamingResponse chat(String userMessage);
     }
 
     public PriceAgent(String apiKey, String model, String baseUrl, DatabaseManager dbManager) {
@@ -41,12 +41,20 @@ public class PriceAgent {
     }
 
     public String chat(String sessionId, String userMessage) {
-        PriceAssistant assistant = sessions.computeIfAbsent(sessionId, this::createAssistant);
+        PriceAssistant assistant = sessions.get(sessionId);
+        if (assistant == null) {
+            assistant = createAssistant(sessionId);
+            sessions.put(sessionId, assistant);
+        }
         return assistant.chat(userMessage);
     }
 
-    public TokenStream chatStream(String sessionId, String userMessage) {
-        StreamingPriceAssistant assistant = streamingSessions.computeIfAbsent(sessionId, this::createStreamingAssistant);
+    public StreamingResponse chatStream(String sessionId, String userMessage) {
+        StreamingPriceAssistant assistant = streamingSessions.get(sessionId);
+        if (assistant == null) {
+            assistant = createStreamingAssistant(sessionId);
+            streamingSessions.put(sessionId, assistant);
+        }
         return assistant.chat(userMessage);
     }
 
@@ -56,43 +64,39 @@ public class PriceAgent {
     }
 
     private PriceAssistant createAssistant(String sessionId) {
-        var builder = OpenAiChatModel.builder()
+        OpenAiChatModel.Builder builder = OpenAiChatModel.builder()
                 .apiKey(apiKey)
                 .modelName(model)
-                .temperature(0.0)
-                .logRequests(false)
-                .logResponses(false);
+                .temperature(0.0);
 
-        if (baseUrl != null && !baseUrl.isBlank()) {
+        if (baseUrl != null && baseUrl.trim().length() > 0) {
             builder.baseUrl(baseUrl);
         }
 
         OpenAiChatModel chatModel = builder.build();
 
-        return AiServices.builder(PriceAssistant.class)
-                .chatLanguageModel(chatModel)
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(20))
+        return AgentBuilder.forInterface(PriceAssistant.class)
+                .chatModel(chatModel)
+                .memory(new SlidingWindowMemory(20))
                 .tools(new ExecuteSqlTool(dbManager), new GetDimensionValuesTool(dbManager), new SearchProductsTool(dbManager))
                 .build();
     }
 
     private StreamingPriceAssistant createStreamingAssistant(String sessionId) {
-        var builder = OpenAiStreamingChatModel.builder()
+        OpenAiStreamingChatModel.Builder builder = OpenAiStreamingChatModel.builder()
                 .apiKey(apiKey)
                 .modelName(model)
-                .temperature(0.0)
-                .logRequests(false)
-                .logResponses(false);
+                .temperature(0.0);
 
-        if (baseUrl != null && !baseUrl.isBlank()) {
+        if (baseUrl != null && baseUrl.trim().length() > 0) {
             builder.baseUrl(baseUrl);
         }
 
         OpenAiStreamingChatModel streamingModel = builder.build();
 
-        return AiServices.builder(StreamingPriceAssistant.class)
-                .streamingChatLanguageModel(streamingModel)
-                .chatMemory(MessageWindowChatMemory.withMaxMessages(20))
+        return AgentBuilder.forInterface(StreamingPriceAssistant.class)
+                .streamingChatModel(streamingModel)
+                .memory(new SlidingWindowMemory(20))
                 .tools(new ExecuteSqlTool(dbManager), new GetDimensionValuesTool(dbManager), new SearchProductsTool(dbManager))
                 .build();
     }
